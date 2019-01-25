@@ -194,7 +194,6 @@ def get_os_icon(hos):
     else:
         return None    
 
-
 def import_nmap(node, filename, index=None, task=None):
     """
     Import a nmap XML single file into the notebook
@@ -204,277 +203,82 @@ def import_nmap(node, filename, index=None, task=None):
     task     -- Task object to track progress
     """
 
-    # TODO: handle spaces correctly
-
     if task is None:
         # create dummy task if needed
         task = tasklib.Task()
 
     nmapxml = minidom.parse(filename)
-    
-    # Searching for up and down numbers
-    nhostup=nmapxml.getElementsByTagName("hosts")[0].getAttribute("up")
-    nhostdown=nmapxml.getElementsByTagName("hosts")[0].getAttribute("down")
-    scanstats = "(%s up, %s down)" % (nhostup,nhostdown)
-    originaltitle = node.get_attr("title")
-    node.set_attr("title", "%s %s" % (originaltitle,scanstats))
-    
-    # Create a Up and Down folder
-    uphostsfolder = node.new_child(notebooklib.CONTENT_TYPE_DIR,("Up"),index)
-    uphostsfolder.set_attr("title", ("Up (%s)" % nhostup))
-    # Create a Up and Down folder
-    downhostsfolder = node.new_child(notebooklib.CONTENT_TYPE_DIR,("Down"),index)
-    downhostsfolder.set_attr("title", ("Down (%s)" % nhostdown))
-    
-    noportsopenfolder = uphostsfolder.new_child(notebooklib.CONTENT_TYPE_DIR,("No Ports Open"),index)
-    noportsopenfolder.set_attr("title",("No Ports Open"))
-    withportsopenfolder = uphostsfolder.new_child(notebooklib.CONTENT_TYPE_DIR,("With Ports Open"),index)
-    withportsopenfolder.set_attr("title","With Ports Open")
-    
+
     for hostnode in nmapxml.getElementsByTagName("host"):
-        
-        hstatus = "Unknown"
-        hstatusreason = "Unknown"
-        hstatusreasonttl = "Unknown"
-        haddress = "Unknown"
-        hosfirstmatch = None
-        newhostnode = None
-        icon = None
-        detectedos = []
-        
-        if len(hostnode.getElementsByTagName("status")) > 0:
-            hstatusnode = hostnode.getElementsByTagName("status")[0]
-            hstatus = hstatusnode.getAttribute("state")
-            hstatusreason =  hstatusnode.getAttribute("reason")
-            hstatusreasonttl =  hstatusnode.getAttribute("reason_ttl")
-        
-        if (len(hostnode.getElementsByTagName("address")) > 0):
-            haddress = hostnode.getElementsByTagName("address")[0].getAttribute("addr")
-        
-        if len(hostnode.getElementsByTagName("os")) > 0:
-            oscount = 0
-            for osmatch in hostnode.getElementsByTagName("os")[0].getElementsByTagName("osmatch"):
-                osname = osmatch.getAttribute("name")
-                osaccuracy = osmatch.getAttribute("accuracy")
-                osfamily = osmatch.getElementsByTagName("osclass")[0].getAttribute("osfamily")
-                if osfamily is None:
-                    osfamily= osmatch.getElementsByTagName("osclass")[0].getAttribute("family")
-                osvendor = osmatch.getElementsByTagName("osclass")[0].getAttribute("vendor")
-                ostype = osmatch.getElementsByTagName("osclass")[0].getAttribute("type")
-                detectedos.append([osname,osaccuracy,ostype,osvendor,osfamily])
-                if oscount == 0:
-                    hosfirstmatch = osname
-                    icon = get_os_icon(hosfirstmatch)
-                oscount += 1
-            
-            # If no OS was identified by nmap
-            if oscount == 0:
-                mypath = os.path.dirname(os.path.abspath(__file__))
-                icon = "%s/icons/question.png" % mypath
-        
-        # Create the folder with the first IP obtained and the fist hostname
-        hnames = []
+        ip = ''
+        mac = ''
+        dns_a = []
+        dns_ptr = []
+
+        if len(hostnode.getElementsByTagName("address")) > 0:
+            ip = hostnode.getElementsByTagName("address")[0].getAttribute("addr")
+            if len(hostnode.getElementsByTagName("address")) > 1:
+                mac = hostnode.getElementsByTagName("address")[1].getAttribute("addr")
+                mac += " " + hostnode.getElementsByTagName("address")[1].getAttribute("vendor")
+
         if len(hostnode.getElementsByTagName("hostnames")) > 0:
             for hostname in hostnode.getElementsByTagName("hostnames")[0].getElementsByTagName("hostname"):
-                hnames.append([hostname.getAttribute("name"),hostname.getAttribute("type")]) 
-            
-        if len(hnames)==0:
-            mainhostname = haddress
-        else:
-            if hnames[0][0] is not None:
-                mainhostname = hnames[0][0]
-            else:
-                mainhostname = haddress
-        
-        # New host node hanging from "Up" or "Down" folder
-        if (hstatus == "up"):
-            if len(hostnode.getElementsByTagName("ports")) > 0:
-                newhostnode = withportsopenfolder.new_child(notebooklib.CONTENT_TYPE_DIR,("%s - %s") % (haddress,mainhostname),index)
-            else:
-                newhostnode = noportsopenfolder.new_child(notebooklib.CONTENT_TYPE_DIR,("%s - %s") % (haddress,mainhostname),index)
-        else:
-            newhostnode = downhostsfolder.new_child(notebooklib.CONTENT_TYPE_DIR,("%s - %s") % (haddress,mainhostname),index)
-        newhostnode.set_attr("title",("%s - %s") % (haddress,mainhostname))
-        
-        # Create a page with status reason of the host and other information
-        statusnode = newhostnode.new_child(notebooklib.CONTENT_TYPE_PAGE,"Status Information",None)
-        statusout = safefile.open(statusnode.get_data_file(),"w",codec="utf-8")
-        statusout.write("""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><body>""")
-        statusout.write("<b>Status:</b> %s<br/>" % hstatus)
-        statusout.write("<b>Status Reason:</b> %s<br/>" % hstatusreason)
-        statusout.write("<b>Status Reason TTL:</b> %s<br/>" % hstatusreasonttl)
-        statusout.write("</body></html>")
-        statusout.close()
-        
-        
-        if len(hostnode.getElementsByTagName("os")) > 0:
-            osinfonode = newhostnode.new_child(notebooklib.CONTENT_TYPE_PAGE,"OS Information",None)
-            osinfonode = safefile.open(osinfonode.get_data_file(),"w",codec="utf-8")
-            osinfonode.write("""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><body>""")
-            
-            if icon is not None:
-                osinfonode.write("<br/>")
-                osinfonode.write("<img src=\"%s\"/><br/>" % icon)                
-                
-            for detected_os in detectedos:
-                osinfonode.write("-----------------------------------<br/>")
-                osinfonode.write("<b>OS Name:</b> %s<br/>" % detected_os[0])
-                osinfonode.write("<b>OS Accuracy:</b> %s<br/>" % detected_os[1])
-                osinfonode.write("<b>OS Type:</b> %s<br/>" % detected_os[2])
-                osinfonode.write("<b>OS Vendor:</b> %s<br/>" % detected_os[3])
-                osinfonode.write("<b>OS Family:</b> %s<br/>" % detected_os[4])
-                osinfonode.write("-----------------------------------<br/>")
-            
-            osinfonode.write("</body></html>")
-            osinfonode.close()
-        
-        # Icon selection
-        if icon is not None:
-            print "Setting the icon for host %s to %s" % (haddress,icon)
-            newhostnode.set_attr("icon",icon)
-        else:
-            # Change the color of the Host depending on the state (Up: Green, Dow: Red)
-            if hstatus == "up":
-                # Green
-                newhostnode.set_attr("icon","folder-green.png")
-            else:
-                # Red
-                newhostnode.set_attr("icon","folder-red.png")
-                
-        # Change the color of the Host depending on the state (Up: Green, Dow: Red)
-        if hstatus == "up":
-            # Green
-            newhostnode.set_attr("title_fgcolor","#00AA00")
-        else:
-            # Red
-            newhostnode.set_attr("title_fgcolor","#AA0000")
-            
-        # Create a page with multiple hostnames of this host
-        if len(hnames) > 0:
-            hostnamenode = newhostnode.new_child(notebooklib.CONTENT_TYPE_PAGE,"Hostnames",None)
-            hostnameout = safefile.open(hostnamenode.get_data_file(),"w",codec="utf-8")
-            hostnameout.write("""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><body>""")
-            for hnametype in hnames:
-                hostnameout.write(("<b>Hostname:</b> %s. <b>Type:</b> %s<br/>") % (hnametype[0],hnametype[1]))
-            hostnameout.write("</body></html>")
-            hostnameout.close()
-            
-        # If this host has any port information
+                if hostname.getAttribute("type") == "user":
+                    dns_a.append( hostname.getAttribute("name") )
+                elif hostname.getAttribute("type") == "PTR":
+                    dns_ptr.append( hostname.getAttribute("name") )
+
+
+        hostinfo = "{ip} {hostnames} {mac}".format( ip=ip, hostnames=','.join(dns_a + dns_ptr), mac=mac )
+        host = node.new_child(notebooklib.CONTENT_TYPE_PAGE, hostinfo)
+        host.set_attr("title", hostinfo)
+        with safefile.open(host.get_data_file(), "w", codec="utf-8") as o:
+            o.write("""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><body>""")
+            if mac:
+                o.write('<span>%s</span><br/>' % mac)
+            for hostname in dns_a:
+                o.write('<span style="color: #00ff00">%s A</span><br/>' % hostname)
+            for hostname in dns_ptr:
+                o.write('<span style="color: #00ffff">%s PTR</span><br/>' % hostname)
+            o.write("</body></html>")
+            o.close()
+
+        #host.set_attr("icon","note-green.png")
+
         if len(hostnode.getElementsByTagName("ports")) > 0:
-            n_udpopen = 0
-            n_udpclosed = 0
-            n_udpfiltered = 0
-            n_tcpopen = 0
-            n_tcpclosed = 0
-            n_tcpfiltered = 0
-            # Create a folder for TCP Ports
-            tcpportfolder = newhostnode.new_child(notebooklib.CONTENT_TYPE_DIR,("TCP"),index)
-            tcpportfolder.set_attr("title", ("TCP"))
-            
-            # Create a folder for UDP Ports
-            udpportfolder = newhostnode.new_child(notebooklib.CONTENT_TYPE_DIR,("UDP"),index)
-            udpportfolder.set_attr("title", ("UDP"))
-            
-            for port in hostnode.getElementsByTagName("ports")[0].getElementsByTagName("port"):
-                
-                pstate = "Unknown"
-                pstatereason = "Unknown"
-                pservicename = "Unknown"
-                pserviceproduct = "Unknown"
-                pserviceversion = "Unknown"
-                pserviceostype = "Unknown"
-                    
-                pnumber = port.getAttribute("portid")
-                pprotocol = port.getAttribute("protocol")
-                
-                if len(port.getElementsByTagName("state")) > 0:
-                    statenode = port.getElementsByTagName("state")[0]
+            for portnode in hostnode.getElementsByTagName("ports")[0].getElementsByTagName("port"):
+                pnumber = portnode.getAttribute("portid")
+                pprotocol = portnode.getAttribute("protocol")
+
+                if len(portnode.getElementsByTagName("state")) > 0:
+                    statenode = portnode.getElementsByTagName("state")[0]
                     pstate = statenode.getAttribute("state")
                     pstatereason = statenode.getAttribute("reason")
+                    pttl = statenode.getAttribute("reason_ttl")
                     
-                if len(port.getElementsByTagName("service")) > 0:
-                    servicenode = port.getElementsByTagName("service")[0]
+                if len(portnode.getElementsByTagName("service")) > 0:
+                    servicenode = portnode.getElementsByTagName("service")[0]
                     pservicename = servicenode.getAttribute("name")
                     pserviceproduct = servicenode.getAttribute("product")
                     pserviceversion = servicenode.getAttribute("version")
-                    pserviceostype = servicenode.getAttribute("ostype")
-                
-                newportchild = None
-                if pprotocol.upper() == "TCP":
-                    # Create the page node fot TCP
-                    newportchild = tcpportfolder.new_child(notebooklib.CONTENT_TYPE_PAGE,("%s_%s - %s [%s]") % (pnumber,pprotocol,pservicename,pstate))
-                    newportchild.set_attr("title",("%s_%s - %s [%s]") % (pnumber,pprotocol,pservicename,pstate))
-                    # Save port status stats
-                    if (pstate.upper() == "OPEN"):
-                        n_tcpopen += 1
-                    elif (pstate.upper() == "CLOSED"):
-                        n_tcpclosed += 1
-                    else:    
-                        n_tcpfiltered += 1                    
-                else:
-                    # Create the page node fot UDP
-                    newportchild = udpportfolder.new_child(notebooklib.CONTENT_TYPE_PAGE,("%s_%s - %s [%s]") % (pnumber,pprotocol,pservicename,pstate))
-                    newportchild.set_attr("title",("%s_%s - %s [%s]") % (pnumber,pprotocol,pservicename,pstate))
-                    # Save port status stats
-                    if (pstate.upper() == "OPEN"):
-                        n_udpopen += 1
-                    elif (pstate.upper() == "CLOSED"):
-                        n_udpclosed += 1
-                    else:
-                        n_udpfiltered += 1
-                    
-                portout = safefile.open(newportchild.get_data_file(),"w",codec="utf-8")
-                portout.write("""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><body>""")
-                portout.write(("<b>Port Number:</b> %s. <b>Protocol:</b> %s. <b>State:</b> %s. <b>State Reason:</b> %s<br/>") % (pnumber,pprotocol,pstate,pstatereason))
-                portout.write(("<b>Service:</b> %s. <b>Product:</b> %s. <b>version:</b> %s. <b>OS Type:</b> %s<br/>") % (pservicename,pserviceproduct,pserviceversion,pserviceostype))
-                portout.write("</body></html>")
-                portout.close()
-                
-                # Change the color of the note depending on the state (Open: Green, Closed: Red, Filtered: Orange)
-                if pstate == "open":
-                    # Green
-                    newportchild.set_attr("icon","note-green.png")
-                    newportchild.set_attr("title_fgcolor","#00AA00")
-                elif pstate == "filtered" or pstate == "open|filtered":
-                    # Orange
-                    newportchild.set_attr("icon","note-orange.png")
-                    newportchild.set_attr("title_fgcolor","#ffa300")
-                else:
-                    # Red
-                    newportchild.set_attr("icon","note-red.png")
-                    newportchild.set_attr("title_fgcolor","#AA0000")
+                    pextrainfo = servicenode.getAttribute("extrainfo")
 
-            # Update Ports UPD/TCP Stats in the title
-            # For TCP
-            portstats = "" 
-            if (n_tcpopen>0):
-                portstats += "%s open" % n_tcpopen
-            if (n_tcpclosed>0):
-                if (len(portstats)>0):
-                    portstats += ","
-                portstats += "%s closed" % n_tcpclosed
-            if (n_tcpfiltered>0):
-                if (len(portstats)>0):
-                    portstats += ","
-                portstats += "%s filtered" % n_tcpfiltered
-            if (len(portstats)>0):
-                tcpportfolder.set_attr("title","TCP (%s)" % portstats)
-            # For UDP
-            portstats = "" 
-            if (n_udpopen>0):
-                portstats += "%s open" % n_udpopen
-            if (n_udpclosed>0):
-                if (len(portstats)>0):
-                    portstats += ","
-                portstats += "%s closed" % n_udpclosed
-            if (n_udpfiltered>0):
-                if (len(portstats)>0):
-                    portstats += ","
-                portstats += "%s filtered" % n_udpfiltered
-            if (len(portstats)>0):
-                udpportfolder.set_attr("title","UDP (%s)" % portstats)
-        
-                
+                serviceinfo = "{service} {ver}".format(service=pserviceproduct, ver=pserviceversion) if pserviceproduct else pservicename
+                portinfo = "{port}/{proto} ttl={ttl} {service}".format(port=pnumber, proto=pprotocol, ttl=pttl, service=serviceinfo)
+                port = host.new_child(notebooklib.CONTENT_TYPE_PAGE, portinfo)
+                port.set_attr("title", portinfo)
+                with safefile.open(port.get_data_file(),"w",codec="utf-8") as o:
+                    o.write("""<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><body>""")
+                    o.write("Service: %s<br/>Product: %s<br/>Version: %s<br/>Info: %s<br/>" % (pservicename, pserviceproduct, pserviceversion, pextrainfo))
+                    o.write("</body></html>")
+                    o.close()
+                if pstate == 'open':
+                    port.set_attr("title_fgcolor","#00AA00")
+                elif pstate == 'filtered':
+                    port.set_attr("title_fgcolor","#555555")
+                elif pstate == 'closed':
+                    port.set_attr("title_fgcolor","#000000")
+
     task.finish()
                      
 
